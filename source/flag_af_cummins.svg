@@ -56,6 +56,6 @@
   <circle cx="430" cy="665" r="16" fill="#555"/>
 </g>
 <use href="#wheel" x="660"/>
-<text x="768" y="905" text-anchor="middle" font-family="Impact, 'DejaVu Sans Condensed', 'DejaVu Sans', sans-serif" font-weight="bold" font-size="110" letter-spacing="14" fill="#e9b23a">TURBO DIESEL</text>
-<text x="768" y="150" text-anchor="middle" font-family="Impact, 'DejaVu Sans Condensed', 'DejaVu Sans', sans-serif" font-weight="bold" font-size="64" letter-spacing="20" fill="#e9b23a">ALLIED FORCES</text>
+<text x="768" y="900" text-anchor="middle" font-family="Impact, 'DejaVu Sans Condensed', 'DejaVu Sans', sans-serif" font-weight="bold" font-size="92" letter-spacing="8" fill="#e9b23a">DON'T TREAD ON ME</text>
+<text x="768" y="150" text-anchor="middle" font-family="Impact, 'DejaVu Sans Condensed', 'DejaVu Sans', sans-serif" font-weight="bold" font-size="64" letter-spacing="14" fill="#e9b23a">GREEN HANDLE GANG</text>
 </svg>
