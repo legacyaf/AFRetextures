@@ -13,6 +13,11 @@ The artwork is an original illustration. The editable master is
 1024x1024, on the assumption that the flag mesh stretches the full square back
 out to flag proportions; `flag_af_cummins_co.png` is the same image for preview.
 
+## Blender preview
+
+`preview/flag_preview.obj` is a stand-in waving flag with the texture applied
+(File > Import > Wavefront). It is not the DayZ flag model.
+
 ## Installing
 
 `@AFRetextures` is a ready-to-load mod folder. Copy it to the server and to
@@ -29,3 +34,4 @@ ImageToPAA.
 
     python3 tools/mkpaa.py <rendered 3:2 png> AFRetextures/flags/data/flag_af_cummins_co.paa 1024
     python3 tools/mkpbo.py AFRetextures AFRetextures @AFRetextures/addons/AFRetextures.pbo
+    python3 tools/mkpreview.py AFRetextures/flags/data/flag_af_cummins_co.png preview
