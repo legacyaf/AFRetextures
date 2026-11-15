@@ -2,7 +2,7 @@
 import sys, wave
 import numpy as np
 
-SR, DUR = 48000, 23.0
+SR, DUR = 48000, 23.5
 N = int(SR * DUR)
 t = np.arange(N) / SR
 rs = np.random.RandomState(7)
@@ -49,7 +49,7 @@ def bell(f, dur=3.0):
 D1, D2, A2, D3, F3, A3, C4, D4, E4, F4, A4 = 36.71, 73.42, 110.0, 146.83, 174.61, 220.0, 261.63, 293.66, 329.63, 349.23, 440.0
 Bb2, Bb3, G3 = 116.54, 233.08, 196.0
 
-TT, CT = 13.2, 19.7   # title and call-to-action times
+TT, CT = 15.4, 20.2   # title and call-to-action times
 
 # wind bed
 w = band(rs.randn(N), 150, 900) * (0.5 + 0.5 * np.sin(2 * np.pi * 0.13 * t + 1)) ** 2
@@ -58,8 +58,8 @@ w2 = band(rs.randn(N), 300, 1800) * (0.5 + 0.5 * np.sin(2 * np.pi * 0.09 * t)) *
 add(w2, gain=0.05, pan=0.3)
 
 # low drone through the intro, growing
-n = int(12.4 * SR)
-add(pad([D1, D2, D2 * 1.5], 12.4, 2.5, 0.3, bright=0.8) * (0.5 + 0.5 * ramp(t[:n], 0, 10)), gain=0.55)
+n = int(14.6 * SR)
+add(pad([D1, D2, D2 * 1.5], 14.6, 2.5, 0.3, bright=0.8) * (0.5 + 0.5 * ramp(t[:n], 0, 12)), gain=0.55)
 add(bell(D4), at=0.8, gain=0.10, pan=-0.2); add(bell(A3), at=2.2, gain=0.09, pan=0.2)
 
 # the dead: hit, dissonant bed, growls
@@ -70,12 +70,14 @@ for k, at in enumerate([3.7, 4.5, 5.1, 5.8]):
     g = band(rs.randn(m), 90 + 30 * k, 420) * (0.6 + 0.4 * np.sin(2 * np.pi * (27 + 5 * k) * x)) * np.sin(np.pi * x / 0.9) ** 2
     add(g, at=at, gain=0.5, pan=[-0.5, 0.4, -0.2, 0.5][k])
 
-# beat hits: fight, loot, build, cannibals
-beats = [6.6, 7.8, 9.0, 10.2]
+# beat hits: fight, loot, gear, build, cannibals
+beats = [6.6, 7.8, 9.0, 11.4, 12.6]
+add(boom(100, 34, 1.2, 0.6), at=10.2, gain=0.7)
+add(pad([F3 / 2, F3], 1.2, 0.02, 0.25, bright=1.3), at=10.2, gain=0.3)
 for i, at in enumerate(beats):
     add(boom(105 + i * 6, 34, 1.5, 0.7), at=at, gain=0.85)
-    add(pad([[D2, D3], [Bb2 / 2, Bb2], [G3 / 2, G3], [A2 / 2, A2, A2 * 1.06]][i], 1.2, 0.02, 0.25, bright=1.3), at=at, gain=0.3)
-    if i < 3:
+    add(pad([[D2, D3], [Bb2 / 2, Bb2], [D2, D3, A3], [G3 / 2, G3], [A2 / 2, A2, A2 * 1.06]][i], 1.2, 0.02, 0.25, bright=1.3), at=at, gain=0.3)
+    if i in (0, 1, 3):
         m = int(0.5 * SR)
         add(band(rs.randn(m), 2500, 9000) * np.exp(-np.arange(m) / SR * 16), at=at + 0.6, gain=0.12, pan=0.4 if i % 2 else -0.4)
 for k in range(11):   # gunfire under FIGHT
@@ -84,8 +86,8 @@ for k in range(11):   # gunfire under FIGHT
 for k, f in enumerate([D4 * 2, F4 * 2, A4 * 2, D4 * 4]):   # loot sparkle
     add(bell(f, 1.2), at=7.85 + k * 0.09, gain=0.08, pan=-0.3 + 0.2 * k)
 for k in range(3):    # heartbeat under the cannibals
-    add(boom(62, 38, 0.45, 0.03), at=10.2 + k * 0.7, gain=0.6)
-    add(boom(54, 36, 0.45, 0.03), at=10.2 + k * 0.7 + 0.18, gain=0.42)
+    add(boom(62, 38, 0.45, 0.03), at=12.6 + k * 0.7, gain=0.6)
+    add(boom(54, 36, 0.45, 0.03), at=12.6 + k * 0.7 + 0.18, gain=0.42)
 
 # riser into the title
 n = int(2.0 * SR); x = np.arange(n) / SR; p = x / 2.0
@@ -99,15 +101,15 @@ add(sw, at=TT - 1.0, gain=0.35)
 # title impact + chords
 add(boom(120, 30, 4.5, 1.0), at=TT, gain=1.1)
 add(boom(70, 28, 3.0, 0.2), at=TT + 0.02, gain=0.6)
-chords = [(TT, [D2, D3, F3, A3, D4], 3.4), (TT + 3.2, [Bb2 / 2, Bb2, D3, F3, Bb3], 1.8), (TT + 4.8, [F3 / 2, F3, A3, C4], 1.9),
+chords = [(TT, [D2, D3, F3, A3, D4], 3.4), (TT + 3.2, [Bb2 / 2, Bb2, D3, F3, Bb3], 1.6),
           (CT, [D2, D3, A3, D4, F4], 3.4)]
 for at, fr, d in chords:
     add(pad(fr, d + 0.5, 0.25 if at > TT else 0.01, 0.9, bright=1.25), at=at, gain=0.42)
 add(pad([D1, D2], DUR - TT, 0.01, 1.5, bright=0.8), at=TT, gain=0.5)
-for dt, f in [(0, D4 * 2), (1.0, A4), (2.0, F4 * 2), (3.2, D4 * 2), (4.0, F4), (4.8, C4 * 2), (5.6, A4), (6.5, D4 * 2), (7.5, A4), (8.3, D4)]:
+for dt, f in [(0, D4 * 2), (1.0, A4), (2.0, F4 * 2), (3.2, D4 * 2), (4.0, F4), (4.8, D4 * 2), (5.8, A4), (6.6, D4)]:
     add(bell(f, 3.2), at=TT + dt, gain=0.13, pan=rs.uniform(-0.4, 0.4))
 add(boom(90, 32, 3.0, 0.5), at=CT, gain=0.8)
-for k in range(13):   # slow pulse under the title
+for k in range(9):   # slow pulse under the title
     add(boom(58, 40, 0.5, 0.05), at=TT + 0.5 + k * 0.5, gain=0.16 if k % 2 else 0.24)
 
 # reverb: convolve with decaying noise

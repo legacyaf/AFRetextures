@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 
-const FPS = 30, DUR = 23, TOTAL = FPS * DUR, WORKERS = 4;
+const FPS = 30, DUR = 23.5, TOTAL = FPS * DUR, WORKERS = 4;
 
 (async () => {
   const out = process.argv[2];
