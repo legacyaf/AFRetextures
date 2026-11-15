@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face { font-family: "Bebas"; src: url("fonts/bebas-neue-latin-400-normal.woff2"); }
+@font-face { font-family: "Oswald"; font-weight: 300; src: url("fonts/oswald-latin-300-normal.woff2"); }
+@font-face { font-family: "Oswald"; font-weight: 500; src: url("fonts/oswald-latin-500-normal.woff2"); }
+html, body { margin: 0; background: #000; }
+canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script>
+// Allied Forces reel. Every frame is a pure function of its index, so the
+// renderer can produce frames in any order and in parallel.
+const W = 1080, H = 1920, FPS = 30, DUR = 22;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+// ---------- helpers ----------
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ss = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
+const easeOutExpo = t => t >= 1 ? 1 : 1 - Math.pow(2, -10 * clamp(t));
+const mod = (x, m) => ((x % m) + m) % m;
+function hash(i, seed = 0) {
+  let x = Math.imul(i ^ (seed * 374761393), 668265263);
+  x = Math.imul(x ^ (x >>> 13), 1274126177);
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, seed = 0) {
+  const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+  return lerp(hash(i, seed), hash(i + 1, seed), u);
+}
+function fbm(x, seed = 0, oct = 4) {
+  let s = 0, a = 0.5, f = 1;
+  for (let o = 0; o < oct; o++) { s += a * vnoise(x * f, seed + o * 17); a *= 0.5; f *= 2; }
+  return s;
+}
+function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+// ---------- prebuilt layers ----------
+const LW = 1700; // layers are wider than the frame so they can drift
+
+function mountainLayer(seed, baseY, amp, col, freq) {
+  const c = mk(LW, H), g = c.getContext('2d');
+  g.fillStyle = col; g.beginPath(); g.moveTo(0, H);
+  for (let x = 0; x <= LW; x += 4) g.lineTo(x, baseY - fbm(x * freq, seed, 5) * amp);
+  g.lineTo(LW, H); g.fill();
+  return c;
+}
+function pine(g, x, y, h, r) {
+  const tiers = 6 + Math.floor(r() * 3);
+  g.fillRect(x - h * 0.012, y - h * 0.25, h * 0.024, h * 0.27);
+  for (let i = 0; i < tiers; i++) {
+    const p = i / (tiers - 1);
+    const top = y - h + p * h * 0.72;
+    const bot = top + h * (0.17 + p * 0.08);
+    const hw = h * (0.035 + p * 0.15) * (0.85 + r() * 0.3);
+    g.beginPath();
+    g.moveTo(x, top);
+    g.lineTo(x + hw, bot + r() * h * 0.02);
+    g.lineTo(x + hw * 0.35, bot - h * 0.025);
+    g.lineTo(x, bot);
+    g.lineTo(x - hw * 0.35, bot - h * 0.025);
+    g.lineTo(x - hw, bot + r() * h * 0.02);
+    g.closePath(); g.fill();
+  }
+}
+function treeLayer(seed, baseY, amp, minH, maxH, n, col) {
+  const c = mk(LW, H), g = c.getContext('2d'), r = rng(seed);
+  const gy = x => baseY - fbm(x * 0.0022, seed, 3) * amp;
+  g.fillStyle = col; g.beginPath(); g.moveTo(0, H);
+  for (let x = 0; x <= LW; x += 6) g.lineTo(x, gy(x));
+  g.lineTo(LW, H); g.fill();
+  for (let i = 0; i < n; i++) {
+    const x = r() * LW, h = lerp(minH, maxH, Math.pow(r(), 1.6));
+    pine(g, x, gy(x) + 8, h, r);
+  }
+  return c;
+}
+const L = {
+  mFar: mountainLayer(11, 1180, 420, '#fff', 0.0016),
+  mMid: mountainLayer(23, 1330, 330, '#fff', 0.0024),
+  tFar: treeLayer(31, 1440, 120, 70, 150, 150, '#fff'),
+  tMid: treeLayer(47, 1600, 110, 150, 300, 70, '#fff'),
+  tNear: treeLayer(59, 1830, 80, 380, 720, 16, '#fff'),
+  ridge: (() => { // bare foreground ridge for the hero shots
+    const c = mk(LW, H), g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, H);
+    for (let x = 0; x <= LW; x += 4) g.lineTo(x, ridgeY(x));
+    g.lineTo(LW, H); g.fill();
+    return c;
+  })(),
+};
+function ridgeY(x) { return 1560 - Math.exp(-Math.pow((x - 850) / 520, 2)) * 110 - fbm(x * 0.006, 77, 3) * 40; }
+
+// tint a white-on-transparent layer with a flat colour (cached per colour)
+const tintCache = new Map();
+function tinted(name, col) {
+  const k = name + col;
+  if (!tintCache.has(k)) {
+    const src = L[name], c = mk(src.width, src.height), g = c.getContext('2d');
+    g.drawImage(src, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = col; g.fillRect(0, 0, c.width, c.height);
+    tintCache.set(k, c);
+  }
+  return tintCache.get(k);
+}
+
+// film grain tiles
+const grain = [];
+(() => {
+  const r = rng(999);
+  for (let k = 0; k < 6; k++) {
+    const c = mk(540, 960), g = c.getContext('2d'), id = g.createImageData(540, 960);
+    for (let i = 0; i < id.data.length; i += 4) {
+      const v = 128 + (r() - 0.5) * 2 * 110;
+      id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255;
+    }
+    g.putImageData(id, 0, 0); grain.push(c);
+  }
+})();
+
+// ---------- drawing primitives ----------
+function glow(x, y, r, col, a = 1, sx = 1, sy = 1) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(sx, sy);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, col.replace('A', a));
+  g.addColorStop(0.4, col.replace('A', a * 0.35));
+  g.addColorStop(1, col.replace('A', 0));
+  ctx.fillStyle = g; ctx.fillRect(-r, -r, r * 2, r * 2); ctx.restore();
+}
+function sky(stops) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  stops.forEach(([p, c]) => g.addColorStop(p, c));
+  ctx.fillStyle = g; ctx.fillRect(-200, -200, W + 400, H + 400);
+}
+function layer(name, col, pan, par, dy = 0) {
+  const x = -((LW - W) / 2) - pan * par;
+  ctx.drawImage(tinted(name, col), x, dy);
+}
+function fog(t, y, spread, col, a, seed, n = 9, speed = 18) {
+  for (let i = 0; i < n; i++) {
+    const r = 380 + hash(i, seed) * 420;
+    const x = mod(hash(i, seed + 1) * 2200 + t * speed * (0.5 + hash(i, seed + 2)), 2200) - 560;
+    const yy = y + (hash(i, seed + 3) - 0.5) * spread + Math.sin(t * 0.3 + i) * 12;
+    glow(x, yy, r, col, a * (0.55 + 0.45 * hash(i, seed + 4)), 1, 0.3);
+  }
+}
+function particles(t, n, seed, o) {
+  ctx.save(); if (o.add) ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < n; i++) {
+    const z = 0.35 + hash(i, seed) * 0.65;
+    const x = mod(hash(i, seed + 1) * W + (o.vx || 0) * t * z + Math.sin(t * (0.5 + hash(i, seed + 2)) + i) * 45, W + 80) - 40;
+    const y = mod(hash(i, seed + 3) * H - (o.vy || 0) * t * z, H + 80) - 40;
+    const tw = 0.55 + 0.45 * Math.sin(t * (2 + hash(i, seed + 4) * 5) + i * 3);
+    const s = o.size * z * z;
+    if (o.add) glow(x, y, s * 5, o.col, o.a * tw * z);
+    ctx.fillStyle = o.col.replace('A', o.a * tw * z * (o.add ? 1 : 0.8));
+    ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// silhouette of a survivor. (x, y) is the feet, h the height.
+function figure(x, y, h, pose = 0, flip = 1, col = '#000') {
+  ctx.save(); ctx.translate(x, y); ctx.scale(flip * h, h);
+  ctx.fillStyle = col; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const limb = (pts, w) => { ctx.lineWidth = w; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); };
+  // legs
+  limb([[-0.035, -0.5], [-0.06, -0.26], [-0.075, -0.015]], 0.06);
+  limb([[0.035, -0.5], [0.06, -0.26], [0.06, -0.015]], 0.06);
+  // boots
+  ctx.fillRect(-0.105, -0.03, 0.09, 0.03); ctx.fillRect(0.03, -0.03, 0.095, 0.03);
+  // torso + jacket
+  ctx.beginPath();
+  ctx.moveTo(-0.1, -0.83); ctx.quadraticCurveTo(0, -0.875, 0.1, -0.83);
+  ctx.lineTo(0.075, -0.47); ctx.lineTo(-0.075, -0.47); ctx.closePath(); ctx.fill();
+  // backpack
+  ctx.beginPath(); ctx.roundRect(-0.155, -0.81, 0.075, 0.23, 0.03); ctx.fill();
+  // neck, head, cap brim
+  ctx.fillRect(-0.03, -0.9, 0.06, 0.07);
+  ctx.beginPath(); ctx.ellipse(0.005, -0.94, 0.05, 0.058, 0, 0, 7); ctx.fill();
+  if (pose !== 3) { ctx.beginPath(); ctx.ellipse(0.04, -0.962, 0.058, 0.013, 0.1, 0, 7); ctx.fill(); }
+  if (pose === 0) { // rifle held low across the body
+    limb([[0.09, -0.81], [0.115, -0.64], [0.05, -0.56]], 0.042);
+    limb([[-0.09, -0.81], [-0.105, -0.66], [-0.03, -0.58]], 0.042);
+    limb([[-0.16, -0.47], [0.27, -0.69]], 0.026);
+    limb([[-0.16, -0.47], [-0.2, -0.43]], 0.045);
+  } else if (pose === 1) { // rifle slung, arms down
+    limb([[0.09, -0.81], [0.108, -0.63], [0.1, -0.46]], 0.042);
+    limb([[-0.09, -0.81], [-0.108, -0.63], [-0.1, -0.46]], 0.042);
+    limb([[-0.17, -0.38], [-0.1, -1.08]], 0.024);
+  } else if (pose === 2) { // aiming
+    limb([[0.1, -0.8], [0.22, -0.79], [0.34, -0.81]], 0.042);
+    limb([[-0.1, -0.8], [0.04, -0.74], [0.16, -0.79]], 0.042);
+    limb([[0.0, -0.815], [0.52, -0.825]], 0.026);
+    limb([[0.0, -0.815], [-0.06, -0.78]], 0.05);
+    limb([[0.2, -0.8], [0.21, -0.72]], 0.03);
+  } else { // pose 3: arm raised, hooded
+    limb([[0.09, -0.81], [0.15, -0.98], [0.13, -1.16]], 0.042);
+    limb([[-0.09, -0.81], [-0.108, -0.63], [-0.1, -0.46]], 0.042);
+  }
+  ctx.restore();
+}
+
+function flag(x, y, poleH, t, col = '#000', w = 150, hgt = 92) {
+  ctx.save(); ctx.fillStyle = col;
+  ctx.fillRect(x - 4, y - poleH, 8, poleH);
+  ctx.beginPath();
+  const top = y - poleH + 8, N = 24;
+  const wave = (u, ph) => Math.sin(u * 5.2 - t * 4.2 + ph) * 13 * u + Math.sin(u * 9 - t * 6.5) * 4 * u;
+  for (let i = 0; i <= N; i++) { const u = i / N; ctx.lineTo(x + 4 + u * w, top + wave(u, 0) + u * 10); }
+  for (let i = N; i >= 0; i--) { const u = i / N; ctx.lineTo(x + 4 + u * w, top + hgt + wave(u, 0.5) + u * 6); }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function star(x, y, r, rot = -Math.PI / 2) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = rot + i * Math.PI / 5, rr = i % 2 ? r * 0.4 : r;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+}
+
+// emblem: ring, tick marks, shield and star. p is the 0..1 build-on progress.
+function emblem(x, y, R, p, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.translate(x, y); ctx.globalAlpha = a;
+  const amber = '#e9a23b', bone = '#f1ead9';
+  ctx.strokeStyle = bone; ctx.lineCap = 'butt';
+  const sweep = easeOut(p / 0.6);
+  ctx.lineWidth = R * 0.045;
+  ctx.beginPath(); ctx.arc(0, 0, R, -Math.PI / 2, -Math.PI / 2 + sweep * Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = R * 0.014;
+  ctx.beginPath(); ctx.arc(0, 0, R * 0.88, -Math.PI / 2, -Math.PI / 2 - sweep * Math.PI * 2, true); ctx.stroke();
+  for (let i = 0; i < 48; i++) {
+    if (i / 48 > sweep) break;
+    const an = -Math.PI / 2 + i / 48 * Math.PI * 2, big = i % 4 === 0;
+    ctx.lineWidth = R * (big ? 0.022 : 0.01);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(an) * R * 1.08, Math.sin(an) * R * 1.08);
+    ctx.lineTo(Math.cos(an) * R * (big ? 1.17 : 1.13), Math.sin(an) * R * (big ? 1.17 : 1.13));
+    ctx.stroke();
+  }
+  const sp = easeOutExpo((p - 0.25) / 0.5);
+  if (sp > 0) {
+    ctx.globalAlpha = a * sp;
+    const s = R * (1.25 - 0.25 * sp);
+    ctx.beginPath(); // shield
+    ctx.moveTo(-0.52 * s, -0.56 * s); ctx.lineTo(0.52 * s, -0.56 * s);
+    ctx.lineTo(0.52 * s, 0.02 * s);
+    ctx.quadraticCurveTo(0.5 * s, 0.46 * s, 0, 0.7 * s);
+    ctx.quadraticCurveTo(-0.5 * s, 0.46 * s, -0.52 * s, 0.02 * s);
+    ctx.closePath();
+    ctx.lineWidth = R * 0.05; ctx.lineJoin = 'miter'; ctx.strokeStyle = bone; ctx.stroke();
+    ctx.fillStyle = 'rgba(8,10,12,0.55)'; ctx.fill();
+    ctx.fillStyle = amber; star(0, -0.06 * s, 0.34 * s); ctx.fill();
+    ctx.fillStyle = bone; // chevrons under the star
+    for (let k = 0; k < 2; k++) {
+      const cy = (0.33 + k * 0.13) * s, cw = (0.24 - k * 0.07) * s;
+      ctx.beginPath(); ctx.moveTo(-cw, cy - 0.07 * s); ctx.lineTo(0, cy); ctx.lineTo(cw, cy - 0.07 * s);
+      ctx.lineTo(cw, cy - 0.02 * s); ctx.lineTo(0, cy + 0.05 * s); ctx.lineTo(-cw, cy - 0.02 * s); ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// centred text with tracking, optional glow. Returns measured width.
+function text(str, x, y, size, o = {}) {
+  const a = o.a ?? 1; if (a <= 0) return 0;
+  ctx.save();
+  ctx.font = `${o.weight || 400} ${size}px ${o.font || 'Bebas'}`;
+  const ls = o.ls ?? 0;
+  ctx.letterSpacing = ls + 'px';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  const cx = x + ls / 2; // trailing tracking shifts the visual centre
+  if (o.blur) ctx.filter = `blur(${o.blur}px)`;
+  if (o.shadow !== false) {
+    ctx.globalAlpha = a * 0.7; ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = size * 0.25;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(str, cx, y + size * 0.03);
+    ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  }
+  if (o.glow) {
+    ctx.globalAlpha = a * o.glow; ctx.shadowColor = o.glowCol || '#ffb45a'; ctx.shadowBlur = size * 0.35;
+    ctx.fillStyle = o.col || '#f1ead9'; ctx.fillText(str, cx, y);
+    ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  }
+  ctx.globalAlpha = a; ctx.fillStyle = o.col || '#f1ead9';
+  ctx.fillText(str, cx, y);
+  const w = ctx.measureText(str).width;
+  ctx.restore();
+  return w;
+}
+function fitSize(str, target, ls = 0, font = 'Bebas') {
+  ctx.save(); ctx.font = `400 100px ${font}`; ctx.letterSpacing = '0px';
+  const w = ctx.measureText(str).width; ctx.restore();
+  return (target - ls * str.length) / w * 100;
+}
+
+// camera: zoom about a point plus shake
+function camera(zoom, cx, cy, shake, f) {
+  const sx = (hash(f, 5) - 0.5) * 2 * shake, sy = (hash(f, 6) - 0.5) * 2 * shake;
+  ctx.translate(cx + sx, cy + sy); ctx.scale(zoom, zoom); ctx.translate(-cx, -cy);
+}
+
+// ---------- scenes ----------
+function sceneNight(lt, f) { // "when the world fell"
+  camera(1.04 + lt * 0.012, W / 2, 1100, 0, f);
+  sky([[0, '#020406'], [0.45, '#07111a'], [0.72, '#12222b'], [1, '#0a1318']]);
+  glow(760, 520, 520, 'rgba(150,185,200,A)', 0.22);
+  ctx.fillStyle = '#c9d6d6'; ctx.beginPath(); ctx.arc(760, 520, 54, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(7,17,26,0.55)'; ctx.beginPath(); ctx.arc(782, 508, 50, 0, 7); ctx.fill();
+  const pan = lt * 14;
+  layer('mFar', '#0c1a22', pan, 0.15);
+  fog(lt, 1150, 120, 'rgba(120,150,160,A)', 0.07, 1);
+  layer('mMid', '#08131a', pan, 0.3);
+  fog(lt, 1330, 100, 'rgba(120,150,160,A)', 0.09, 2);
+  layer('tFar', '#050d12', pan, 0.55);
+  fog(lt, 1500, 120, 'rgba(110,140,150,A)', 0.1, 3);
+  layer('tMid', '#03080b', pan, 0.9);
+  fog(lt, 1700, 140, 'rgba(90,120,130,A)', 0.09, 4);
+  layer('tNear', '#010304', pan, 1.6, 40);
+  particles(lt, 60, 21, { col: 'rgba(190,200,205,A)', a: 0.35, size: 3, vx: 26, vy: -30 });
+}
+
+function sceneDawn(lt, f) { // "we stood together"
+  camera(1.1 - lt * 0.015, W / 2, 1300, 0, f);
+  sky([[0, '#06090d'], [0.4, '#141b22'], [0.62, '#3b2a22'], [0.74, '#9c5526'], [0.8, '#d98a3a'], [1, '#2a1a12']]);
+  const sy = 1400 - lt * 16;
+  glow(540, sy, 900, 'rgba(255,170,80,A)', 0.5);
+  glow(540, sy, 260, 'rgba(255,225,170,A)', 0.9);
+  const pan = -lt * 12;
+  layer('mFar', '#3a2a26', pan, 0.15, 200);
+  fog(lt, 1260, 100, 'rgba(255,170,100,A)', 0.09, 5);
+  layer('mMid', '#1c1516', pan, 0.3, 210);
+  fog(lt, 1420, 90, 'rgba(255,160,90,A)', 0.1, 6);
+  layer('ridge', '#040303', pan, 1, 40);
+  const px = x => x - (LW - W) / 2 - pan; // layer space -> screen
+  const fy = x => ridgeY(x) + 46;
+  [[700, 250, 1, 1], [800, 268, 0, 1], [905, 255, 1, -1], [1000, 262, 0, -1], [610, 240, 0, 1]].forEach(([x, h, p, fl]) => figure(px(x), fy(x), h, p, fl));
+  fog(lt, 1680, 120, 'rgba(60,40,30,A)', 0.25, 7);
+  particles(lt, 50, 22, { col: 'rgba(255,190,120,A)', a: 0.5, size: 2.6, vx: -18, vy: 26, add: true });
+}
+
+function sceneSurvive(lt, f) {
+  camera(1.06 + lt * 0.04, W / 2, 1400, 0, f);
+  sky([[0, '#020304'], [0.6, '#0a0c10'], [1, '#150c07']]);
+  layer('mMid', '#07090c', 0, 0.3, 60);
+  layer('tFar', '#050607', lt * 10, 0.5, 20);
+  const fl = 0.8 + 0.2 * vnoise(lt * 9, 3) + 0.1 * Math.sin(lt * 31);
+  const fx = 540, fyy = 1560;
+  glow(fx, fyy - 30, 900 * fl, 'rgba(255,120,30,A)', 0.42);
+  // ground
+  ctx.fillStyle = '#060403'; ctx.fillRect(-100, 1560, W + 200, 500);
+  glow(fx, 1570, 620, 'rgba(255,130,40,A)', 0.4 * fl, 1, 0.16);
+  // tent
+  ctx.fillStyle = '#030202';
+  ctx.beginPath(); ctx.moveTo(60, 1570); ctx.lineTo(250, 1330); ctx.lineTo(440, 1570); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,120,40,0.10)';
+  ctx.beginPath(); ctx.moveTo(250, 1330); ctx.lineTo(440, 1570); ctx.lineTo(300, 1570); ctx.closePath(); ctx.fill();
+  figure(790, 1575, 300, 1, -1, '#020101');
+  figure(930, 1580, 285, 0, -1, '#020101');
+  // logs + flames
+  ctx.strokeStyle = '#020101'; ctx.lineWidth = 16; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(fx - 70, 1575); ctx.lineTo(fx + 60, 1545); ctx.moveTo(fx + 70, 1575); ctx.lineTo(fx - 60, 1545); ctx.stroke();
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 9; i++) {
+    const ph = lt * (5 + i) + i * 2.1, hgt = 60 + 70 * vnoise(ph, i);
+    const x = fx + (hash(i, 8) - 0.5) * 80 + Math.sin(ph) * 8;
+    glow(x, 1545 - hgt * 0.5, 34 + hgt * 0.5, 'rgba(255,150,40,A)', 0.55, 0.55, 1.5);
+  }
+  glow(fx, 1535, 60, 'rgba(255,240,190,A)', 0.9, 1, 1.2);
+  ctx.restore();
+  particles(lt + 3, 46, 23, { col: 'rgba(255,150,50,A)', a: 0.9, size: 3.2, vx: 14, vy: 230, add: true });
+}
+
+function sceneBuild(lt, f) {
+  camera(1.12 - lt * 0.05, W / 2, 1200, 0, f);
+  sky([[0, '#0a0d12'], [0.45, '#27262b'], [0.68, '#7d4a2c'], [0.8, '#c97c3a'], [1, '#22140e']]);
+  glow(300, 1380, 800, 'rgba(255,170,90,A)', 0.4);
+  layer('mFar', '#33272a', 0, 0.15, 120);
+  layer('tFar', '#150f10', lt * 12, 0.5, 40);
+  fog(lt, 1480, 80, 'rgba(255,170,100,A)', 0.12, 9);
+  const c = '#030202';
+  ctx.fillStyle = c; ctx.strokeStyle = c;
+  ctx.fillRect(-100, 1640, W + 200, 400);
+  // palisade
+  for (let i = 0; i < 40; i++) {
+    const x = -20 + i * 29, h = 250 + hash(i, 12) * 60;
+    ctx.beginPath(); ctx.moveTo(x, 1660); ctx.lineTo(x, 1660 - h); ctx.lineTo(x + 13, 1660 - h - 26); ctx.lineTo(x + 26, 1660 - h); ctx.lineTo(x + 26, 1660); ctx.fill();
+  }
+  // watchtower
+  const tx = 700, base = 1650, top = 880;
+  ctx.save(); ctx.translate(tx, base); ctx.scale(0.78, 0.78); ctx.translate(-tx, -base);
+  ctx.lineWidth = 16; ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(tx - 150, base); ctx.lineTo(tx - 110, top); ctx.moveTo(tx + 150, base); ctx.lineTo(tx + 110, top);
+  ctx.stroke(); ctx.lineWidth = 9; ctx.beginPath();
+  for (let k = 0; k < 3; k++) {
+    const y0 = base - k * 250, y1 = y0 - 250, w0 = 150 - k * 13, w1 = w0 - 13;
+    ctx.moveTo(tx - w0, y0); ctx.lineTo(tx + w1, y1); ctx.moveTo(tx + w0, y0); ctx.lineTo(tx - w1, y1);
+    ctx.moveTo(tx - w1, y1); ctx.lineTo(tx + w1, y1);
+  }
+  ctx.stroke();
+  ctx.fillRect(tx - 170, top - 20, 340, 22);          // platform
+  ctx.fillRect(tx - 165, top - 100, 330, 12);         // rail
+  for (let k = 0; k < 6; k++) ctx.fillRect(tx - 165 + k * 64, top - 100, 9, 90);
+  ctx.fillRect(tx - 150, top - 250, 10, 240); ctx.fillRect(tx + 140, top - 250, 10, 240);
+  ctx.beginPath(); ctx.moveTo(tx - 215, top - 240); ctx.lineTo(tx, top - 330); ctx.lineTo(tx + 215, top - 240); ctx.closePath(); ctx.fill();
+  figure(tx - 30, top - 20, 185, 1, 1, c);
+  flag(tx + 195, top - 20, 420, lt + 1, c, 170, 104);
+  ctx.restore();
+  particles(lt, 30, 24, { col: 'rgba(255,190,130,A)', a: 0.4, size: 2.4, vx: 30, vy: 12, add: true });
+}
+
+function sceneFight(lt, f) {
+  const strobe = (hash(Math.floor(lt * 15), 40) > 0.62) ? 1 : 0;
+  camera(1.08, W / 2, 1200, 9, f);
+  sky([[0, '#070203'], [0.5, '#2a0a08'], [0.78, '#7a1d10'], [1, '#170605']]);
+  glow(700, 1250, 1500, 'rgba(255,80,30,A)', 0.6);
+  layer('mMid', '#1d0806', 0, 0.3, 90);
+  fog(lt, 1300, 260, 'rgba(160,50,30,A)', 0.14, 13, 10, 90);
+  layer('tFar', '#0c0303', lt * 40, 0.5, -130);
+  ctx.fillStyle = '#040101'; ctx.fillRect(-100, 1455, W + 200, 600);
+  // tracers
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  for (let i = 0; i < 11; i++) {
+    const per = 0.28 + hash(i, 41) * 0.3, ph = mod(lt + hash(i, 42), per) / per;
+    const y = 760 + hash(i, 43) * 600, dir = hash(i, 44) > 0.35 ? 1 : -1;
+    const x = dir > 0 ? -300 + ph * 1900 : W + 300 - ph * 1900;
+    const g = ctx.createLinearGradient(x - dir * 320, 0, x, 0);
+    g.addColorStop(0, 'rgba(255,90,30,0)'); g.addColorStop(1, 'rgba(255,220,150,0.95)');
+    ctx.strokeStyle = g; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(x - dir * 320, y - dir * 14); ctx.lineTo(x, y); ctx.stroke();
+    glow(x, y, 26, 'rgba(255,200,120,A)', 0.8);
+  }
+  ctx.restore();
+  // shooters behind cover
+  ctx.fillStyle = '#040101';
+  ctx.fillRect(30, 1290, 250, 180); ctx.fillRect(800, 1320, 260, 150);
+  figure(200, 1462, 340, 2, 1, '#040101');
+  figure(880, 1462, 320, 2, -1, '#040101');
+  if (strobe) {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    glow(385, 1182, 110, 'rgba(255,220,150,A)', 1); glow(385, 1182, 480, 'rgba(255,140,60,A)', 0.3);
+    ctx.restore();
+  }
+  fog(lt, 1600, 200, 'rgba(150,45,22,A)', 0.2, 14, 8, 60);
+  particles(lt, 60, 25, { col: 'rgba(255,140,60,A)', a: 0.8, size: 3, vx: -160, vy: 120, add: true });
+}
+
+function sceneTogether(lt, f) {
+  camera(1.14 - lt * 0.05, W / 2, 1100, 0, f);
+  const rise = easeOut(lt / 1.0);
+  const fx = 560 + Math.sin(lt * 2) * 10, fy = lerp(1380, 640, rise);
+  sky([[0, '#06070b'], [0.5, '#111622'], [0.8, '#1f1a22'], [1, '#0c0a0d']]);
+  glow(fx, fy, 1300, 'rgba(255,60,50,A)', 0.42);
+  layer('mFar', '#1c1620', 0, 0.15, 60);
+  fog(lt, 1250, 120, 'rgba(255,90,80,A)', 0.07, 15);
+  layer('mMid', '#100c12', 0, 0.3, 80);
+  // flare trail and head
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 26; i++) {
+    const u = i / 26, yy = lerp(fy, 1480, u);
+    glow(560 + Math.sin(yy * 0.012 + lt) * 26 * u, yy, 26 + u * 46, 'rgba(255,120,110,A)', 0.2 * (1 - u));
+  }
+  glow(fx, fy, 420, 'rgba(255,90,70,A)', 0.8);
+  glow(fx, fy, 70, 'rgba(255,240,230,A)', 1);
+  ctx.fillStyle = 'rgba(255,120,100,0.5)'; ctx.fillRect(fx - 420, fy - 2, 840, 4);
+  ctx.restore();
+  layer('ridge', '#030203', 0, 1, 40);
+  const px = x => x - (LW - W) / 2, y = x => ridgeY(x) + 46;
+  [[640, 250, 1, 1], [735, 262, 0, 1], [850, 270, 3, 1], [955, 258, 0, -1], [1050, 246, 1, -1]].forEach(([x, h, p, fl]) => figure(px(x), y(x), h, p, fl, '#030203'));
+  particles(lt, 40, 26, { col: 'rgba(255,130,110,A)', a: 0.6, size: 2.6, vx: 16, vy: -50, add: true });
+}
+
+function sceneTitle(lt, f, shake) {
+  camera(1.16 - 0.1 * easeOut(lt / 9), W / 2, 1300, shake, f);
+  const up = easeOut(lt / 8);
+  const sy = 1450 - up * 110;
+  sky([[0, '#05080c'], [0.3, '#101b24'], [0.5, '#3a2c28'], [0.64, '#b2632a'], [0.73, '#f0a548'], [0.86, '#5a3018'], [1, '#170d08']]);
+  glow(540, sy, 1150, 'rgba(255,165,70,A)', 0.55);
+  // god rays
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.translate(540, sy);
+  for (let i = 0; i < 16; i++) {
+    const an = -Math.PI * (0.08 + 0.84 * hash(i, 50)) + Math.sin(lt * 0.12 + i) * 0.03;
+    const wd = 0.02 + hash(i, 51) * 0.05;
+    const a = (0.035 + 0.05 * hash(i, 52)) * (0.6 + 0.4 * Math.sin(lt * 0.7 + i * 2.3));
+    const g = ctx.createRadialGradient(0, 0, 60, 0, 0, 1500);
+    g.addColorStop(0, `rgba(255,200,120,${a})`); g.addColorStop(1, 'rgba(255,200,120,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(an - wd) * 1600, Math.sin(an - wd) * 1600);
+    ctx.lineTo(Math.cos(an + wd) * 1600, Math.sin(an + wd) * 1600); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  glow(540, sy, 330, 'rgba(255,235,190,A)', 1);
+  ctx.fillStyle = '#fff3d6'; ctx.beginPath(); ctx.arc(540, sy, 118, 0, 7); ctx.fill();
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  glow(540, sy, 900, 'rgba(255,190,120,A)', 0.35, 1, 0.018); // anamorphic streak
+  ctx.restore();
+  const pan = lt * 5;
+  layer('mFar', '#4a3229', pan, 0.15, 350);
+  fog(lt, 1480, 80, 'rgba(255,180,110,A)', 0.1, 16);
+  layer('mMid', '#21171a', pan, 0.3, 330);
+  fog(lt, 1560, 80, 'rgba(255,170,100,A)', 0.12, 17);
+  layer('tFar', '#0d0a0b', pan, 0.55, 200);
+  layer('ridge', '#030202', pan, 1, 110);
+  const px = x => x - (LW - W) / 2 - pan, y = x => ridgeY(x) + 116;
+  flag(px(850), y(850), 300, lt, '#030202', 150, 92);
+  [[560, 236, 1, 1], [660, 252, 0, 1], [760, 262, 1, 1], [945, 266, 0, -1], [1045, 254, 1, -1], [1140, 240, 0, -1]].forEach(([x, h, p, fl]) => figure(px(x), y(x), h, p, fl, '#030202'));
+  fog(lt, 1800, 120, 'rgba(70,40,24,A)', 0.3, 18);
+  particles(lt, 70, 27, { col: 'rgba(255,190,110,A)', a: 0.65, size: 2.8, vx: 20, vy: 34, add: true });
+}
+
+// ---------- overlays ----------
+function post(f, o = {}) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const v = ctx.createRadialGradient(W / 2, H * 0.52, H * 0.25, W / 2, H * 0.52, H * 0.72);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, `rgba(0,0,0,${o.vig ?? 0.72})`);
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+function finish(f, fade, flash) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (flash > 0) { ctx.fillStyle = `rgba(255,236,210,${flash})`; ctx.fillRect(0, 0, W, H); }
+  if (fade > 0) { ctx.fillStyle = `rgba(0,0,0,${fade})`; ctx.fillRect(0, 0, W, H); }
+  ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = 0.16;
+  const g = grain[f % grain.length], ox = Math.floor(hash(f, 70) * 270), oy = Math.floor(hash(f, 71) * 480);
+  ctx.drawImage(g, ox, oy, 270, 480, 0, 0, W, H);
+  ctx.globalAlpha = 0.1;
+  ctx.drawImage(grain[(f + 3) % grain.length], 0, 0, 540, 960, 0, 0, W, H);
+  ctx.restore();
+}
+// fade-in / hold / fade-out envelope
+const env = (lt, len, i = 0.5, o = 0.4) => ss(0, i, lt) * (1 - ss(len - o, len, lt));
+
+function line(str, y, lt, len, o = {}) {
+  const a = env(lt, len, o.in ?? 0.7, o.out ?? 0.45);
+  const size = o.size || 92, ls = (o.ls ?? 14) + lt * 2.2;
+  text(str, W / 2, y, size, { a, ls, blur: (1 - ss(0, 0.7, lt)) * 10, font: o.font, weight: o.weight, col: o.col, glow: o.glow });
+}
+function beatWord(str, lt, cy = 1010) {
+  const p = easeOutExpo(lt / 0.35);
+  const size = fitSize(str, 900) * (1.35 - 0.35 * p + lt * 0.03);
+  const a = ss(0, 0.06, lt) * (1 - ss(0.86, 1.0, lt));
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  text(str, W / 2 - 7 * (1 - p) - 2, cy + size * 0.36, size, { a: a * 0.5, col: '#ff3b2e', shadow: false });
+  text(str, W / 2 + 7 * (1 - p) + 2, cy + size * 0.36, size, { a: a * 0.5, col: '#2ee6ff', shadow: false });
+  ctx.restore();
+  text(str, W / 2, cy + size * 0.36, size, { a, col: '#f6efe0' });
+}
+
+// ---------- timeline ----------
+const T = { s1: 0, s2: 3.6, b1: 7.0, b2: 8.0, b3: 9.0, b4: 10.0, gap: 11.0, title: 12.0, cta: 18.5, end: DUR };
+
+window.render = function (f) {
+  const t = f / FPS;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  let fade = 0, flash = 0;
+  const hit = (at, amt, len = 0.3) => { if (t >= at && t < at + len) flash = Math.max(flash, amt * Math.pow(1 - (t - at) / len, 2)); };
+
+  if (t < T.s2) {
+    const lt = t - T.s1;
+    sceneNight(lt, f); post(f);
+    line('WHEN THE WORLD FELL', 900, lt - 0.7, 2.7, { size: 96 });
+    fade = Math.max(1 - ss(0, 1.4, lt), ss(T.s2 - 0.35, T.s2, t));
+  } else if (t < T.b1) {
+    const lt = t - T.s2;
+    sceneDawn(lt, f); post(f);
+    line('WE STOOD', 700, lt - 0.35, 2.9, { size: 150, ls: 18, glow: 0.35 });
+    line('TOGETHER', 880, lt - 0.85, 2.4, { size: 196, ls: 18, glow: 0.35, col: '#f3b55c' });
+    fade = Math.max(1 - ss(0, 0.6, lt), ss(T.b1 - 0.18, T.b1, t));
+  } else if (t < T.gap) {
+    const scenes = [[T.b1, sceneSurvive, 'SURVIVE'], [T.b2, sceneBuild, 'BUILD', 470], [T.b3, sceneFight, 'FIGHT', 640], [T.b4, sceneTogether, 'AS ONE']];
+    let k = 0; while (k < 3 && t >= scenes[k + 1][0]) k++;
+    const lt = t - scenes[k][0];
+    ctx.save(); scenes[k][1](lt, f); ctx.restore();
+    // impact shake applied by redrawing offset is costly; nudge text instead
+    post(f, { vig: 0.8 });
+    beatWord(scenes[k][2], lt, scenes[k][3]);
+    scenes.forEach(s => hit(s[0], 0.55, 0.22));
+    if (k === 3) fade = ss(0.8, 1.0, lt);
+  } else if (t < T.title) {
+    const lt = t - T.gap;
+    glow(W / 2, 1000, 700, 'rgba(255,150,60,A)', 0.1 * lt * lt);
+    text('WE ARE', W / 2, 1000, 74, { a: env(lt, 1.0, 0.3, 0.12), ls: 40 + lt * 26, font: 'Oswald', weight: 300, col: '#d9cfbb' });
+  } else {
+    const lt = t - T.title;
+    const shake = 16 * Math.pow(1 - clamp(lt / 0.6), 2);
+    ctx.save(); sceneTitle(lt, f, shake); ctx.restore();
+    post(f, { vig: 0.62 });
+    // darken the upper half so type sits on something
+    const g = ctx.createLinearGradient(0, 0, 0, 1250);
+    g.addColorStop(0, 'rgba(0,0,0,0.6)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, 1250);
+
+    const out = 1 - ss(T.cta - T.title - 0.5, T.cta - T.title - 0.05, lt); // title block leaves before CTA
+    if (out > 0) {
+      emblem(W / 2, 390, 108, clamp(lt / 1.6), out);
+      const pA = easeOutExpo(lt / 0.5), pF = easeOutExpo((lt - 0.22) / 0.5);
+      const sA = fitSize('ALLIED', 760), sF = fitSize('FORCES', 760);
+      const drift = 1 + lt * 0.004;
+      text('ALLIED', W / 2, 770, sA * (1.25 - 0.25 * pA) * drift, { a: ss(0, 0.12, lt) * out, glow: 0.3 });
+      text('FORCES', W / 2, 770 + sF * 0.80, sF * (1.25 - 0.25 * pF) * drift, { a: ss(0.22, 0.34, lt) * out, glow: 0.3 });
+      // rule + subtitle
+      const ry = 770 + sF * 0.80 + 62, rw = 400 * easeOut((lt - 0.7) / 0.9);
+      ctx.fillStyle = `rgba(233,162,59,${out})`; ctx.fillRect(W / 2 - rw, ry, rw * 2, 5);
+      text('DAYZ COMMUNITY', W / 2, ry + 100, 80, { a: ss(1.0, 1.7, lt) * out, ls: 20 + lt * 0.9, col: '#f3b55c', blur: (1 - ss(1.0, 1.7, lt)) * 8 });
+      // light sweep across the wordmark
+      const sw = (lt - 1.5) / 1.1;
+      if (sw > 0 && sw < 1) {
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        glow(lerp(-200, W + 200, sw), 800, 420, 'rgba(255,225,170,A)', 0.2 * Math.sin(sw * Math.PI), 0.35, 1.2);
+        ctx.restore();
+      }
+    }
+    const ct = t - T.cta;
+    if (ct > 0) {
+      emblem(W / 2, 430, 86, 1, ss(0, 0.5, ct));
+      const s = fitSize('JOIN THE FIGHT', 860);
+      text('JOIN THE FIGHT', W / 2, 730, s * (1 + ct * 0.006), { a: ss(0.05, 0.5, ct), glow: 0.3, blur: (1 - ss(0.05, 0.5, ct)) * 10 });
+      text('SURVIVE TOGETHER', W / 2, 820, 62, { a: ss(0.4, 0.9, ct), ls: 22, font: 'Oswald', weight: 300, col: '#e6dcc8' });
+      // link-in-bio pill
+      const pa = ss(0.8, 1.3, ct);
+      if (pa > 0) {
+        const pw = 520, ph = 112, py = 905, pulse = 1 + 0.02 * Math.sin(ct * 5);
+        ctx.save(); ctx.translate(W / 2, py + ph / 2); ctx.scale(pulse, pulse); ctx.globalAlpha = pa;
+        ctx.shadowColor = 'rgba(255,170,70,0.7)'; ctx.shadowBlur = 40;
+        ctx.fillStyle = '#e9a23b'; ctx.beginPath(); ctx.roundRect(-pw / 2, -ph / 2, pw, ph, 14); ctx.fill();
+        ctx.restore();
+        text('LINK IN BIO', W / 2, py + 82, 80, { a: pa, ls: 10, col: '#14100b', shadow: false });
+      }
+      text('ALLIED FORCES  ·  DAYZ COMMUNITY', W / 2, 1095, 38, { a: ss(1.2, 1.8, ct) * 0.9, ls: 9, font: 'Oswald', weight: 500, col: '#e6dcc8' });
+    }
+    hit(T.title, 0.95, 0.5);
+    fade = ss(DUR - 0.9, DUR - 0.05, t);
+  }
+  finish(f, fade, flash);
+};
+window.ready = document.fonts.load('100px Bebas').then(() => Promise.all([document.fonts.load('300 50px Oswald'), document.fonts.load('500 50px Oswald')])).then(() => { tintCache.clear(); return true; });
+</script>
+</body>
+</html>
