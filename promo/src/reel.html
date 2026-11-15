@@ -15,7 +15,7 @@ canvas { display: block; }
 <script>
 // Allied Forces reel. Every frame is a pure function of its index, so the
 // renderer can produce frames in any order and in parallel.
-const W = 1080, H = 1920, FPS = 30, DUR = 22;
+const W = 1080, H = 1920, FPS = 30, DUR = 23;
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -529,7 +529,230 @@ function sceneTitle(lt, f, shake) {
   particles(lt, 70, 27, { col: 'rgba(255,190,110,A)', a: 0.65, size: 2.8, vx: 20, vy: 34, add: true });
 }
 
-// ---------- overlays ----------
+// ---------- undead, looters, cannibals ----------
+const limbs = (pts, w) => { ctx.lineWidth = w; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); };
+
+// shambling infected, facing +x. ph drives the walk cycle.
+function zombie(x, y, h, flip, ph, col = '#000') {
+  const sw = Math.sin(ph), bob = Math.abs(Math.cos(ph)) * 0.012;
+  ctx.save(); ctx.translate(x, y); ctx.scale(flip * h, h); ctx.translate(0, bob);
+  ctx.rotate(0.05 * Math.sin(ph * 0.5));
+  ctx.fillStyle = col; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  limbs([[-0.02, -0.48], [-0.05 - sw * 0.05, -0.25], [-0.1 - sw * 0.1, -0.012]], 0.056);
+  limbs([[0.03, -0.48], [0.08 + sw * 0.05, -0.27], [0.05 + sw * 0.1, -0.012]], 0.056);
+  ctx.beginPath(); // hunched torso with torn hem
+  ctx.moveTo(-0.075, -0.45); ctx.lineTo(-0.03, -0.8); ctx.quadraticCurveTo(0.08, -0.87, 0.17, -0.79);
+  ctx.lineTo(0.1, -0.5); ctx.lineTo(0.06, -0.43); ctx.lineTo(0.03, -0.5); ctx.lineTo(-0.02, -0.42); ctx.lineTo(-0.045, -0.49);
+  ctx.closePath(); ctx.fill();
+  limbs([[0.09, -0.83], [0.15, -0.87]], 0.05); // neck
+  ctx.beginPath(); ctx.ellipse(0.185, -0.915, 0.05, 0.057, 0.5, 0, 7); ctx.fill();
+  const r1 = 0.03 * Math.sin(ph * 0.7), r2 = 0.03 * Math.cos(ph * 0.6);
+  limbs([[0.12, -0.79], [0.27, -0.73 + r1], [0.41, -0.78 + r1]], 0.038);
+  limbs([[0.07, -0.78], [0.21, -0.66 + r2], [0.35, -0.64 + r2]], 0.038);
+  ctx.lineWidth = 0.012; // fingers
+  [[0.41, -0.78 + r1], [0.35, -0.64 + r2]].forEach(([hx, hy]) => { for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx + 0.045, hy + k * 0.022 + 0.005); ctx.stroke(); } });
+  ctx.restore();
+}
+
+// kneeling survivor facing +x. arm: 0 reaching down/forward, 1 hand to mouth, 2 blade raised
+function kneeler(x, y, h, flip, arm = 0, col = '#000', pack = true) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(flip * h, h);
+  ctx.fillStyle = col; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  limbs([[0, -0.36], [-0.02, -0.035], [-0.25, -0.03]], 0.06);       // back leg, knee down
+  limbs([[0, -0.36], [0.2, -0.34], [0.19, -0.03], [0.26, -0.02]], 0.06); // front leg
+  limbs([[0, -0.37], [0.11, -0.66]], 0.17);                          // torso
+  if (pack) { ctx.save(); ctx.translate(-0.06, -0.55); ctx.rotate(0.36); ctx.beginPath(); ctx.roundRect(-0.045, -0.12, 0.08, 0.23, 0.03); ctx.fill(); ctx.restore(); }
+  limbs([[0.12, -0.7], [0.16, -0.76]], 0.05);
+  ctx.beginPath(); ctx.ellipse(0.185, -0.815, 0.05, 0.057, 0.3, 0, 7); ctx.fill();
+  if (arm === 0) {
+    limbs([[0.13, -0.66], [0.27, -0.52], [0.4, -0.42]], 0.042);
+    limbs([[0.1, -0.64], [0.22, -0.47], [0.36, -0.36]], 0.042);
+  } else if (arm === 1) {
+    limbs([[0.13, -0.66], [0.25, -0.58], [0.23, -0.76]], 0.042);
+    limbs([[0.1, -0.64], [0.2, -0.48], [0.3, -0.5]], 0.042);
+  } else {
+    limbs([[0.13, -0.66], [0.26, -0.8], [0.22, -0.98]], 0.042);
+    limbs([[0.1, -0.64], [0.22, -0.47], [0.36, -0.38]], 0.042);
+    ctx.beginPath(); ctx.moveTo(0.2, -0.99); ctx.lineTo(0.215, -1.19); ctx.lineTo(0.3, -1.17); ctx.lineTo(0.29, -1.0); ctx.closePath(); ctx.fill(); // cleaver
+  }
+  ctx.restore();
+}
+
+function sceneHorde(lt, f) { // "the dead rose"
+  camera(1.05 + lt * 0.02, W / 2, 1300, 0, f);
+  sky([[0, '#020403'], [0.4, '#0a1210'], [0.66, '#27332b'], [0.76, '#5d6f58'], [1, '#0b0f0c']]);
+  glow(540, 1380, 1000, 'rgba(170,200,150,A)', 0.3);
+  layer('mMid', '#1a2420', lt * 6, 0.3, 120);
+  layer('tFar', '#111a16', lt * 6, 0.55, 20);
+  fog(lt, 1420, 120, 'rgba(160,190,150,A)', 0.14, 30, 10, 26);
+  ctx.fillStyle = '#0c1310'; ctx.fillRect(-100, 1470, W + 200, 600);
+  const row = (n, seed, y, h, col, speed) => {
+    for (let i = 0; i < n; i++) {
+      const hh = h * (0.9 + 0.2 * hash(i, seed));
+      const x = mod(hash(i, seed + 1) * 1500 + lt * speed * (0.7 + 0.6 * hash(i, seed + 2)), 1500) - 210;
+      zombie(x, y + hash(i, seed + 3) * 30, hh, 1, lt * (3.2 + hash(i, seed + 4)) + i * 1.7, col);
+    }
+  };
+  row(9, 31, 1480, 150, '#131c18', 16);
+  fog(lt, 1480, 80, 'rgba(150,180,140,A)', 0.12, 32, 8, 30);
+  ctx.fillStyle = '#070b09'; ctx.fillRect(-100, 1560, W + 200, 600);
+  row(6, 33, 1590, 270, '#080d0a', 28);
+  fog(lt, 1600, 100, 'rgba(120,150,115,A)', 0.12, 34, 8, 36);
+  ctx.fillStyle = '#020403'; ctx.fillRect(-100, 1790, W + 200, 400);
+  row(3, 35, 1850, 520, '#020403', 46);
+  particles(lt, 50, 36, { col: 'rgba(190,210,180,A)', a: 0.35, size: 3, vx: 22, vy: -24 });
+}
+
+function sceneFightDead(lt, f) {
+  const strobe = (hash(Math.floor(lt * 15), 40) > 0.55) ? 1 : 0;
+  camera(1.06 + lt * 0.02, W / 2, 1200, 9, f);
+  sky([[0, '#070203'], [0.5, '#2a0a08'], [0.74, '#8a2412'], [1, '#170605']]);
+  glow(760, 1220, 1500, 'rgba(255,80,30,A)', 0.6);
+  layer('mMid', '#1d0806', 0, 0.3, 90);
+  fog(lt, 1250, 240, 'rgba(170,55,30,A)', 0.14, 13, 10, 90);
+  layer('tFar', '#42110a', lt * 30, 0.5, -130);
+  glow(600, 1330, 900, 'rgba(255,100,45,A)', 0.3, 1, 0.3);
+  const c = '#040101';
+  ctx.fillStyle = '#180605'; ctx.fillRect(-100, 1455, W + 200, 600);
+  // the dead closing in from the right
+  [[1010, 300, 0], [860, 330, 1.3], [700, 310, 2.4], [1120, 340, 3.1], [575, 325, 4.2]].forEach(([x, h, p], i) => {
+    zombie(x - lt * (60 + i * 12), 1462 + (i % 2) * 14, h, -1, lt * 7 + p, c);
+  });
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  for (let i = 0; i < 8; i++) {
+    const per = 0.22 + hash(i, 41) * 0.2, ph = mod(lt + hash(i, 42), per) / per;
+    const y = 1150 + hash(i, 43) * 120, x = 380 + ph * 1100;
+    const g = ctx.createLinearGradient(x - 300, 0, x, 0);
+    g.addColorStop(0, 'rgba(255,90,30,0)'); g.addColorStop(1, 'rgba(255,225,160,0.95)');
+    ctx.strokeStyle = g; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(Math.max(380, x - 300), y); ctx.lineTo(x, y + 3); ctx.stroke();
+    glow(x, y, 24, 'rgba(255,200,120,A)', 0.8);
+  }
+  ctx.restore();
+  ctx.fillStyle = c; ctx.fillRect(-20, 1300, 150, 170);
+  figure(95, 1466, 325, 2, 1, c);
+  figure(215, 1462, 345, 2, 1, c);
+  if (strobe) {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    glow(402, 1178, 110, 'rgba(255,225,160,A)', 1); glow(402, 1178, 520, 'rgba(255,140,60,A)', 0.32);
+    ctx.restore();
+  }
+  fog(lt, 1600, 200, 'rgba(150,45,22,A)', 0.2, 14, 8, 60);
+  particles(lt, 60, 25, { col: 'rgba(255,140,60,A)', a: 0.8, size: 3, vx: 160, vy: 120, add: true });
+}
+
+function sceneLoot(lt, f) {
+  camera(1.1 - lt * 0.04, 480, 1350, 0, f);
+  ctx.fillStyle = '#07090b'; ctx.fillRect(-200, -200, W + 400, H + 400);
+  // doorway onto a moonlit yard
+  const dx = 640, dw = 290, dy = 930, dh = 640;
+  ctx.save(); ctx.beginPath(); ctx.rect(dx, dy, dw, dh); ctx.clip();
+  const g = ctx.createLinearGradient(0, dy, 0, dy + dh);
+  g.addColorStop(0, '#16242e'); g.addColorStop(0.7, '#3d5560'); g.addColorStop(1, '#1b2a31');
+  ctx.fillStyle = g; ctx.fillRect(dx, dy, dw, dh);
+  glow(dx + 200, dy + 150, 260, 'rgba(200,225,235,A)', 0.5);
+  ctx.drawImage(tinted('tFar', '#0d171c'), -500 - lt * 8, -60);
+  fog(lt, dy + 500, 60, 'rgba(170,200,210,A)', 0.2, 60, 6, 20);
+  ctx.fillStyle = '#0b1216'; ctx.fillRect(dx, dy + 560, dw, 100);
+  ctx.restore();
+  figure(dx + 150, dy + dh + 6, 520, 1, -1, '#030405'); // lookout in the doorway
+  // moonlight spilling across the floor
+  ctx.fillStyle = '#050607'; ctx.fillRect(-200, 1570, W + 400, 600);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  const sg = ctx.createLinearGradient(0, 1570, 0, 1900);
+  sg.addColorStop(0, 'rgba(110,150,165,0.22)'); sg.addColorStop(1, 'rgba(110,150,165,0)');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.moveTo(dx, 1570); ctx.lineTo(dx + dw, 1570); ctx.lineTo(dx + dw - 160, 1920); ctx.lineTo(dx - 520, 1920); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // shelves
+  const c = '#020203';
+  ctx.fillStyle = c;
+  ctx.fillRect(40, 760, 14, 820); ctx.fillRect(470, 760, 14, 820);
+  for (let k = 0; k < 3; k++) {
+    const sy = 800 + k * 210; ctx.fillRect(30, sy + 150, 470, 14);
+    for (let i = 0; i < 7; i++) if (hash(i, 61 + k) > 0.35) {
+      const w = 34 + hash(i, 64 + k) * 22, hh = 50 + hash(i, 67 + k) * 80;
+      ctx.fillRect(66 + i * 58, sy + 150 - hh, w, hh);
+    }
+  }
+  // crate, lid open, loot glow
+  const cx = 250, cy = 1590, pulse = 0.85 + 0.15 * Math.sin(lt * 7);
+  const open = easeOut(lt / 0.5);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  glow(cx, cy - 150, 620 * open, 'rgba(255,190,70,A)', 0.5 * pulse);
+  glow(cx, cy - 120, 170 * open, 'rgba(255,240,190,A)', 0.95 * pulse);
+  for (let i = 0; i < 9; i++) { // rays
+    const an = -Math.PI / 2 + (i - 4) * 0.19 + Math.sin(lt * 1.5 + i) * 0.03;
+    const rg = ctx.createLinearGradient(cx, cy - 110, cx + Math.cos(an) * 620, cy - 110 + Math.sin(an) * 620);
+    rg.addColorStop(0, `rgba(255,210,110,${0.2 * open})`); rg.addColorStop(1, 'rgba(255,210,110,0)');
+    ctx.fillStyle = rg; ctx.beginPath(); ctx.moveTo(cx, cy - 110);
+    ctx.lineTo(cx + Math.cos(an - 0.045) * 640, cy - 110 + Math.sin(an - 0.045) * 640);
+    ctx.lineTo(cx + Math.cos(an + 0.045) * 640, cy - 110 + Math.sin(an + 0.045) * 640); ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle = c; ctx.fillRect(cx - 140, cy - 110, 280, 120);
+  ctx.save(); ctx.translate(cx - 140, cy - 110); ctx.rotate(-1.25 * open); ctx.fillRect(0, -22, 280, 22); ctx.restore();
+  ctx.fillStyle = 'rgba(255,190,80,0.25)'; ctx.fillRect(cx - 140, cy - 110, 280, 6);
+  kneeler(505, 1596, 420, -1, 0, c);
+  particles(lt, 46, 62, { col: 'rgba(255,205,110,A)', a: 0.8, size: 2.6, vx: 6, vy: 60, add: true });
+}
+
+function sceneCannibal(lt, f) {
+  const beat = Math.pow(Math.max(0, Math.sin(lt * Math.PI / 0.7 * 2)), 12) * (mod(lt, 0.7) < 0.36 ? 1 : 0);
+  camera(1.04 + lt * 0.05 + beat * 0.012, 520, 1420, 0, f);
+  sky([[0, '#030101'], [0.5, '#120304'], [0.76, '#4a0b0b'], [1, '#0c0202']]);
+  glow(540, 1420, 1100, 'rgba(220,30,25,A)', 0.3 + beat * 0.08);
+  layer('tFar', '#0c0203', lt * 6, 0.5, -30);
+  layer('tMid', '#070102', lt * 6, 0.9, -40);
+  fog(lt, 1400, 160, 'rgba(180,30,30,A)', 0.12, 70, 9, 20);
+  const c = '#030001', gy = 1580, fx = 420;
+  ctx.fillStyle = '#050101'; ctx.fillRect(-100, gy - 6, W + 200, 600);
+  const fl = 0.8 + 0.2 * vnoise(lt * 9, 3);
+  glow(fx, gy - 40, 760 * fl, 'rgba(255,70,25,A)', 0.42);
+  glow(fx, gy, 600, 'rgba(255,90,30,A)', 0.4 * fl, 1, 0.15);
+  // butcher's rack behind the fire
+  ctx.fillStyle = c; ctx.strokeStyle = c; ctx.lineCap = 'round';
+  ctx.fillRect(770, 1010, 16, 580); ctx.fillRect(1070, 1010, 16, 580); ctx.fillRect(740, 1030, 400, 16);
+  [[850, 250, 0.5], [940, 330, 1.9], [1020, 210, 3.1]].forEach(([x, len, p]) => {
+    const swy = Math.sin(lt * 1.6 + p) * 0.05;
+    ctx.save(); ctx.translate(x, 1044); ctx.rotate(swy);
+    ctx.fillRect(-2, 0, 4, 60);
+    ctx.beginPath(); ctx.moveTo(-10, 56); ctx.quadraticCurveTo(-34, len * 0.5, -22, len); ctx.quadraticCurveTo(0, len + 26, 20, len);
+    ctx.quadraticCurveTo(30, len * 0.5, 10, 56); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  });
+  // what's left of the last visitor
+  ctx.lineWidth = 34; ctx.beginPath(); ctx.moveTo(1130, gy - 16); ctx.lineTo(860, gy - 16); ctx.stroke();
+  ctx.fillRect(840, gy - 74, 30, 70); ctx.fillRect(884, gy - 66, 28, 62);
+  // spit over the fire
+  ctx.lineWidth = 12; ctx.beginPath();
+  ctx.moveTo(fx - 150, gy); ctx.lineTo(fx - 150, gy - 210); ctx.moveTo(fx + 150, gy); ctx.lineTo(fx + 150, gy - 210);
+  ctx.moveTo(fx - 185, gy - 200); ctx.lineTo(fx + 185, gy - 200); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(fx, gy - 200, 78, 30, 0, 0, 7); ctx.fill();
+  ctx.lineWidth = 16; ctx.beginPath(); ctx.moveTo(fx - 70, gy + 4); ctx.lineTo(fx + 60, gy - 22); ctx.moveTo(fx + 70, gy + 4); ctx.lineTo(fx - 60, gy - 22); ctx.stroke();
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 9; i++) {
+    const ph = lt * (5 + i) + i * 2.1, hgt = 50 + 60 * vnoise(ph, i);
+    glow(fx + (hash(i, 8) - 0.5) * 80 + Math.sin(ph) * 8, gy - 20 - hgt * 0.5, 32 + hgt * 0.5, 'rgba(255,110,35,A)', 0.55, 0.55, 1.5);
+  }
+  glow(fx, gy - 30, 54, 'rgba(255,225,170,A)', 0.9, 1, 1.2);
+  ctx.restore();
+  kneeler(85, gy + 6, 430, 1, 2, c, false);  // the butcher
+  kneeler(760, gy + 8, 400, -1, 1, c, false); // feeding
+  particles(lt + 2, 46, 71, { col: 'rgba(255,90,40,A)', a: 0.9, size: 3.2, vx: 14, vy: 210, add: true });
+}
+
+// ---------- overlay helpers ----------
+const logo = new Image(); logo.src = 'logo.png';
+function drawLogo(cx, cy, w, a, extra = 0) {
+  if (a <= 0) return;
+  const h = w * logo.height / logo.width;
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 50;
+  ctx.drawImage(logo, cx - w / 2, cy - h / 2, w, h);
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  if (extra > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * extra; ctx.drawImage(logo, cx - w / 2, cy - h / 2, w, h); }
+  ctx.restore();
+}
 function post(f, o = {}) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const v = ctx.createRadialGradient(W / 2, H * 0.52, H * 0.25, W / 2, H * 0.52, H * 0.72);
@@ -547,27 +770,25 @@ function finish(f, fade, flash) {
   ctx.drawImage(grain[(f + 3) % grain.length], 0, 0, 540, 960, 0, 0, W, H);
   ctx.restore();
 }
-// fade-in / hold / fade-out envelope
 const env = (lt, len, i = 0.5, o = 0.4) => ss(0, i, lt) * (1 - ss(len - o, len, lt));
-
 function line(str, y, lt, len, o = {}) {
   const a = env(lt, len, o.in ?? 0.7, o.out ?? 0.45);
   const size = o.size || 92, ls = (o.ls ?? 14) + lt * 2.2;
-  text(str, W / 2, y, size, { a, ls, blur: (1 - ss(0, 0.7, lt)) * 10, font: o.font, weight: o.weight, col: o.col, glow: o.glow });
+  text(str, W / 2, y, size, { a, ls, blur: (1 - ss(0, 0.7, lt)) * 10, font: o.font, weight: o.weight, col: o.col, glow: o.glow, glowCol: o.glowCol });
 }
-function beatWord(str, lt, cy = 1010) {
+function beatWord(str, lt, len, cy = 1010, width = 900, col = '#f6efe0') {
   const p = easeOutExpo(lt / 0.35);
-  const size = fitSize(str, 900) * (1.35 - 0.35 * p + lt * 0.03);
-  const a = ss(0, 0.06, lt) * (1 - ss(0.86, 1.0, lt));
+  const size = fitSize(str, width) * (1.35 - 0.35 * p + lt * 0.03);
+  const a = ss(0, 0.06, lt) * (1 - ss(len - 0.14, len, lt));
   ctx.save(); ctx.globalCompositeOperation = 'lighter';
   text(str, W / 2 - 7 * (1 - p) - 2, cy + size * 0.36, size, { a: a * 0.5, col: '#ff3b2e', shadow: false });
   text(str, W / 2 + 7 * (1 - p) + 2, cy + size * 0.36, size, { a: a * 0.5, col: '#2ee6ff', shadow: false });
   ctx.restore();
-  text(str, W / 2, cy + size * 0.36, size, { a, col: '#f6efe0' });
+  text(str, W / 2, cy + size * 0.36, size, { a, col });
 }
 
 // ---------- timeline ----------
-const T = { s1: 0, s2: 3.6, b1: 7.0, b2: 8.0, b3: 9.0, b4: 10.0, gap: 11.0, title: 12.0, cta: 18.5, end: DUR };
+const T = { s1: 0, s2: 3.4, b1: 6.6, b2: 7.8, b3: 9.0, b4: 10.2, gap: 12.2, title: 13.2, cta: 19.7, end: DUR };
 
 window.render = function (f) {
   const t = f / FPS;
@@ -579,83 +800,86 @@ window.render = function (f) {
 
   if (t < T.s2) {
     const lt = t - T.s1;
-    sceneNight(lt, f); post(f);
-    line('WHEN THE WORLD FELL', 900, lt - 0.7, 2.7, { size: 96 });
-    fade = Math.max(1 - ss(0, 1.4, lt), ss(T.s2 - 0.35, T.s2, t));
+    ctx.save(); sceneNight(lt, f); ctx.restore(); post(f);
+    line('WHEN THE WORLD FELL', 900, lt - 0.6, 2.6, { size: 96 });
+    fade = Math.max(1 - ss(0, 1.3, lt), ss(T.s2 - 0.3, T.s2, t));
   } else if (t < T.b1) {
     const lt = t - T.s2;
-    sceneDawn(lt, f); post(f);
-    line('WE STOOD', 700, lt - 0.35, 2.9, { size: 150, ls: 18, glow: 0.35 });
-    line('TOGETHER', 880, lt - 0.85, 2.4, { size: 196, ls: 18, glow: 0.35, col: '#f3b55c' });
-    fade = Math.max(1 - ss(0, 0.6, lt), ss(T.b1 - 0.18, T.b1, t));
+    ctx.save(); sceneHorde(lt, f); ctx.restore(); post(f);
+    line('THE DEAD ROSE', 800, lt - 0.3, 2.8, { size: 150, ls: 16, glow: 0.35, glowCol: '#9fd08a', col: '#e6f0dc' });
+    fade = Math.max(1 - ss(0, 0.5, lt), ss(T.b1 - 0.15, T.b1, t));
   } else if (t < T.gap) {
-    const scenes = [[T.b1, sceneSurvive, 'SURVIVE'], [T.b2, sceneBuild, 'BUILD', 470], [T.b3, sceneFight, 'FIGHT', 640], [T.b4, sceneTogether, 'AS ONE']];
+    const scenes = [
+      [T.b1, sceneFightDead, 'FIGHT', 640, 900],
+      [T.b2, sceneLoot, 'LOOT', 520, 760],
+      [T.b3, sceneBuild, 'BUILD', 470, 900],
+      [T.b4, sceneCannibal, 'EAT OR BE EATEN', 700, 940, '#ffd9cf'],
+    ];
     let k = 0; while (k < 3 && t >= scenes[k + 1][0]) k++;
-    const lt = t - scenes[k][0];
+    const lt = t - scenes[k][0], len = (k < 3 ? scenes[k + 1][0] : T.gap) - scenes[k][0];
     ctx.save(); scenes[k][1](lt, f); ctx.restore();
-    // impact shake applied by redrawing offset is costly; nudge text instead
     post(f, { vig: 0.8 });
-    beatWord(scenes[k][2], lt, scenes[k][3]);
+    beatWord(scenes[k][2], lt, len, scenes[k][3], scenes[k][4], scenes[k][5]);
     scenes.forEach(s => hit(s[0], 0.55, 0.22));
-    if (k === 3) fade = ss(0.8, 1.0, lt);
+    if (k === 3) fade = ss(len - 0.3, len, lt);
   } else if (t < T.title) {
     const lt = t - T.gap;
-    glow(W / 2, 1000, 700, 'rgba(255,150,60,A)', 0.1 * lt * lt);
-    text('WE ARE', W / 2, 1000, 74, { a: env(lt, 1.0, 0.3, 0.12), ls: 40 + lt * 26, font: 'Oswald', weight: 300, col: '#d9cfbb' });
+    glow(W / 2, 1000, 700, 'rgba(255,120,40,A)', 0.12 * lt * lt);
+    text('WELCOME TO THE', W / 2, 1000, 70, { a: env(lt, 1.0, 0.3, 0.12), ls: 30 + lt * 22, font: 'Oswald', weight: 300, col: '#d9cfbb' });
   } else {
     const lt = t - T.title;
     const shake = 16 * Math.pow(1 - clamp(lt / 0.6), 2);
     ctx.save(); sceneTitle(lt, f, shake); ctx.restore();
     post(f, { vig: 0.62 });
-    // darken the upper half so type sits on something
     const g = ctx.createLinearGradient(0, 0, 0, 1250);
-    g.addColorStop(0, 'rgba(0,0,0,0.6)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(0, 'rgba(0,0,0,0.72)'); g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, 1250);
 
-    const out = 1 - ss(T.cta - T.title - 0.5, T.cta - T.title - 0.05, lt); // title block leaves before CTA
-    if (out > 0) {
-      emblem(W / 2, 390, 108, clamp(lt / 1.6), out);
-      const pA = easeOutExpo(lt / 0.5), pF = easeOutExpo((lt - 0.22) / 0.5);
-      const sA = fitSize('ALLIED', 760), sF = fitSize('FORCES', 760);
-      const drift = 1 + lt * 0.004;
-      text('ALLIED', W / 2, 770, sA * (1.25 - 0.25 * pA) * drift, { a: ss(0, 0.12, lt) * out, glow: 0.3 });
-      text('FORCES', W / 2, 770 + sF * 0.80, sF * (1.25 - 0.25 * pF) * drift, { a: ss(0.22, 0.34, lt) * out, glow: 0.3 });
-      // rule + subtitle
-      const ry = 770 + sF * 0.80 + 62, rw = 400 * easeOut((lt - 0.7) / 0.9);
-      ctx.fillStyle = `rgba(233,162,59,${out})`; ctx.fillRect(W / 2 - rw, ry, rw * 2, 5);
-      text('DAYZ COMMUNITY', W / 2, ry + 100, 80, { a: ss(1.0, 1.7, lt) * out, ls: 20 + lt * 0.9, col: '#f3b55c', blur: (1 - ss(1.0, 1.7, lt)) * 8 });
-      // light sweep across the wordmark
-      const sw = (lt - 1.5) / 1.1;
-      if (sw > 0 && sw < 1) {
-        ctx.save(); ctx.globalCompositeOperation = 'lighter';
-        glow(lerp(-200, W + 200, sw), 800, 420, 'rgba(255,225,170,A)', 0.2 * Math.sin(sw * Math.PI), 0.35, 1.2);
-        ctx.restore();
-      }
-    }
     const ct = t - T.cta;
+    // logo slams in, then settles higher and smaller for the call to action
+    const m = ss(-0.5, 0.2, ct);
+    const p = easeOutExpo(lt / 0.55);
+    const w = lerp(1040, 860, m) * (1.5 - 0.5 * p) * (1 + lt * 0.004);
+    const ly = lerp(720, 520, m);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    glow(W / 2, ly, 720, 'rgba(255,110,30,A)', 0.2 * ss(0, 0.3, lt) * (0.85 + 0.15 * Math.sin(lt * 2.2)), 1, 0.5);
+    ctx.restore();
+    drawLogo(W / 2, ly, w, ss(0, 0.1, lt), 0.9 * Math.pow(1 - clamp(lt / 0.9), 2));
+    const sw = (lt - 1.3) / 1.0; // light sweep
+    if (sw > 0 && sw < 1) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      glow(lerp(-100, W + 100, sw), ly, 300, 'rgba(255,230,180,A)', 0.22 * Math.sin(sw * Math.PI), 0.4, 1);
+      ctx.restore();
+    }
+    const out = 1 - m;
+    if (out > 0) {
+      const rw = 380 * easeOut((lt - 0.7) / 0.9);
+      ctx.fillStyle = `rgba(255,150,50,${out})`; ctx.fillRect(W / 2 - rw, 925, rw * 2, 5);
+      text('DAYZ COMMUNITY', W / 2, 1030, 86, { a: ss(0.9, 1.6, lt) * out, ls: 20 + lt * 0.9, col: '#ffc070', blur: (1 - ss(0.9, 1.6, lt)) * 8 });
+      text('FIGHT  ·  LOOT  ·  BUILD  ·  SURVIVE', W / 2, 1110, 40, { a: ss(1.6, 2.3, lt) * out * 0.9, ls: 9, font: 'Oswald', weight: 500, col: '#e6dcc8' });
+    }
     if (ct > 0) {
-      emblem(W / 2, 430, 86, 1, ss(0, 0.5, ct));
-      const s = fitSize('JOIN THE FIGHT', 860);
-      text('JOIN THE FIGHT', W / 2, 730, s * (1 + ct * 0.006), { a: ss(0.05, 0.5, ct), glow: 0.3, blur: (1 - ss(0.05, 0.5, ct)) * 10 });
-      text('SURVIVE TOGETHER', W / 2, 820, 62, { a: ss(0.4, 0.9, ct), ls: 22, font: 'Oswald', weight: 300, col: '#e6dcc8' });
-      // link-in-bio pill
-      const pa = ss(0.8, 1.3, ct);
+      const s = fitSize('JOIN THE FIGHT', 840);
+      text('JOIN THE FIGHT', W / 2, 850, s * (1 + ct * 0.006), { a: ss(0.05, 0.5, ct), glow: 0.3, blur: (1 - ss(0.05, 0.5, ct)) * 10 });
+      text('SURVIVE TOGETHER', W / 2, 935, 60, { a: ss(0.35, 0.85, ct), ls: 22, font: 'Oswald', weight: 300, col: '#e6dcc8' });
+      const pa = ss(0.7, 1.2, ct);
       if (pa > 0) {
-        const pw = 520, ph = 112, py = 905, pulse = 1 + 0.02 * Math.sin(ct * 5);
+        const pw = 520, ph = 112, py = 1000, pulse = 1 + 0.02 * Math.sin(ct * 5);
         ctx.save(); ctx.translate(W / 2, py + ph / 2); ctx.scale(pulse, pulse); ctx.globalAlpha = pa;
-        ctx.shadowColor = 'rgba(255,170,70,0.7)'; ctx.shadowBlur = 40;
-        ctx.fillStyle = '#e9a23b'; ctx.beginPath(); ctx.roundRect(-pw / 2, -ph / 2, pw, ph, 14); ctx.fill();
+        ctx.shadowColor = 'rgba(255,120,40,0.75)'; ctx.shadowBlur = 40;
+        const pg = ctx.createLinearGradient(0, -ph / 2, 0, ph / 2);
+        pg.addColorStop(0, '#ffb347'); pg.addColorStop(1, '#f0661e');
+        ctx.fillStyle = pg; ctx.beginPath(); ctx.roundRect(-pw / 2, -ph / 2, pw, ph, 14); ctx.fill();
         ctx.restore();
-        text('LINK IN BIO', W / 2, py + 82, 80, { a: pa, ls: 10, col: '#14100b', shadow: false });
+        text('LINK IN BIO', W / 2, py + 82, 80, { a: pa, ls: 10, col: '#170b04', shadow: false });
       }
-      text('ALLIED FORCES  ·  DAYZ COMMUNITY', W / 2, 1095, 38, { a: ss(1.2, 1.8, ct) * 0.9, ls: 9, font: 'Oswald', weight: 500, col: '#e6dcc8' });
     }
     hit(T.title, 0.95, 0.5);
     fade = ss(DUR - 0.9, DUR - 0.05, t);
   }
   finish(f, fade, flash);
 };
-window.ready = document.fonts.load('100px Bebas').then(() => Promise.all([document.fonts.load('300 50px Oswald'), document.fonts.load('500 50px Oswald')])).then(() => { tintCache.clear(); return true; });
+window.ready = Promise.all([logo.decode(), document.fonts.load('100px Bebas'), document.fonts.load('300 50px Oswald'), document.fonts.load('500 50px Oswald')]).then(() => { tintCache.clear(); return true; });
 </script>
 </body>
 </html>

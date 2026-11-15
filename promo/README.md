@@ -1,8 +1,8 @@
 # Allied Forces Instagram reel
 
-`allied-forces-reel.mp4` is a 22 s, 1080x1920, 30 fps intro reel. The visuals
+`allied-forces-reel.mp4` is a 23 s, 1080x1920, 30 fps intro reel. The scenes
 and soundtrack are generated from the files in `src/`, with no outside footage
-or samples.
+or samples; `src/logo.png` is the Allied Forces Universe logo.
 
 ## Rebuilding
 
